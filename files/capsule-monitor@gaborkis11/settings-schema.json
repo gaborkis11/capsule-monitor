@@ -74,6 +74,54 @@
         "dependency": "fixed_width"
     },
 
+    "sep_display": {
+        "type": "separator"
+    },
+    "head_display": {
+        "type": "header",
+        "description": "Display"
+    },
+    "mode_mem": {
+        "type": "combobox",
+        "default": "pct",
+        "description": "Memory shows",
+        "options": {
+            "Percentage used": "pct",
+            "Amount used": "abs"
+        },
+        "tooltip": "Picks what the number says: how full memory is, or how many gigabytes of it are in use right now. The fill bar shows utilization in BOTH modes, so the proportion is never lost in amount mode, the number just becomes more informative. The alert threshold is decided on the percentage in either mode."
+    },
+    "mode_swp": {
+        "type": "combobox",
+        "default": "pct",
+        "description": "Swap shows",
+        "options": {
+            "Percentage used": "pct",
+            "Amount used": "abs"
+        },
+        "tooltip": "Picks what the number says: how full the swap file is, or how many gigabytes of it are in use right now. The fill bar shows utilization in BOTH modes, so the proportion is never lost in amount mode, the number just becomes more informative. The alert threshold is decided on the percentage in either mode."
+    },
+    "mode_gpu": {
+        "type": "combobox",
+        "default": "pct",
+        "description": "Video memory shows",
+        "options": {
+            "Percentage used": "pct",
+            "Amount used": "abs"
+        },
+        "tooltip": "Picks what the number says: how full the video memory is, or how many gigabytes of it a loaded model is holding right now. The fill bar shows utilization in BOTH modes, so the proportion is never lost in amount mode, the number just becomes more informative. The alert threshold is decided on the percentage in either mode."
+    },
+    "mode_ssd": {
+        "type": "combobox",
+        "default": "pct",
+        "description": "Disk shows",
+        "options": {
+            "Percentage used": "pct",
+            "Amount used": "abs"
+        },
+        "tooltip": "Picks what the number says: how full the monitored volume is, or how much of it is used, in gigabytes up to 1000 and in terabytes above that. The fill bar shows utilization in BOTH modes, so the proportion is never lost in amount mode, the number just becomes more informative. The alert threshold is decided on the percentage in either mode."
+    },
+
     "sep_network": {
         "type": "separator"
     },

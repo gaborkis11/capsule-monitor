@@ -37,10 +37,13 @@ All eight are optional and reorderable. Five are on by default; the rest are one
 the settings.
 
 The network cell is a 20-second history with a centre line: one direction above, the other
-below, with the current speed printed at the end of each. The scale follows the peak of the
-last minute, so the shape stays readable whether you are pulling 50 kB/s or 500 MB/s. Only
-physical interfaces are counted — bridges, `veth` pairs and VPN tunnels are skipped, so
-container traffic is not counted two or three times.
+below, with the current speed printed at the end of each. **Each direction is scaled against
+its own recent peak**, so an upload is fully visible even while a much larger download is
+running — a shared scale would flatten it to a stub. Below half a megabyte per second nothing
+is magnified, because that is either idle noise or the acknowledgement traffic the opposite
+direction generates. The exact magnitude is in the two numbers; the graph is there for the
+shape. Only physical interfaces are counted — bridges, `veth` pairs and VPN tunnels are
+skipped, so container traffic is not counted two or three times.
 
 ## Requirements
 
@@ -81,6 +84,10 @@ Right-click the applet → **Configure**.
   arrow buttons to change the order they appear in.
 - **Appearance** — labels on or off (off makes the bars thicker), and an optional fixed width
   so the applet reserves the same space no matter what is enabled.
+- **Display** — memory, swap, video memory and disk can show either the percentage used or the
+  **amount used** (`12,8 G`, `468 G`, `1,5 T`). The bar underneath always shows the percentage,
+  so switching to gigabytes makes the number more informative without losing the proportion.
+  Alert thresholds are evaluated on the percentage in both modes.
 - **Network** — the two colours of the graph. The defaults are red for one direction and green
   for the other; if red sits too close to the orange alert colour for your taste, change it
   here without touching any code.

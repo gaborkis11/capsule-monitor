@@ -32,6 +32,12 @@ try {
     GTop = null;
 }
 
+// SPEC 5.1: the two display modes of an element that has byte data behind it.
+// Not to be confused with ELEMENTS[].kind, which says where the value comes
+// from; the mode only says how the number in the cell is written.
+const MODE_PCT = "pct";
+const MODE_ABS = "abs";
+
 /*
  * SPEC 5 + SPEC 10: this table is the CATALOGUE - what the applet is able to
  * display at all, with its source kind, threshold key, tooltip label and unit.
@@ -41,14 +47,19 @@ try {
  * The order written here is only the documented default order, used when no
  * list has been stored yet, and the order in which elements unknown to a stored
  * list get appended (hidden) so that a future element can still be found.
+ *
+ * modeKey / absFrom (SPEC 5.1): the four elements the provider backs with a
+ * byte figure can show the used amount instead of the percentage. absFrom says
+ * in which unit that figure arrives - SPEC 7.1 gives gpu in MiB and the rest in
+ * bytes. cpu, gfx, tmp and net have no mode: for them it would be meaningless.
  */
 const ELEMENTS = [
-    { id: "mem", thKey: "th_mem", kind: "pct",     unit: "%", tipLabel: "Memória" },
+    { id: "mem", thKey: "th_mem", kind: "pct",     unit: "%", tipLabel: "Memória",      modeKey: "mode_mem", absFrom: "bytes" },
     { id: "cpu", thKey: "th_cpu", kind: "pct",     unit: "%", tipLabel: "Processzor",   sustained: true },
-    { id: "gpu", thKey: "th_gpu", kind: "pct",     unit: "%", tipLabel: "Videómemória" },
-    { id: "ssd", thKey: "th_ssd", kind: "pct",     unit: "%", tipLabel: "Lemez" },
+    { id: "gpu", thKey: "th_gpu", kind: "pct",     unit: "%", tipLabel: "Videómemória", modeKey: "mode_gpu", absFrom: "mib" },
+    { id: "ssd", thKey: "th_ssd", kind: "pct",     unit: "%", tipLabel: "Lemez",        modeKey: "mode_ssd", absFrom: "bytes" },
     { id: "net", thKey: null,     kind: "net",     unit: "",  tipLabel: "Hálózat" },
-    { id: "swp", thKey: "th_swp", kind: "pct",     unit: "%", tipLabel: "Swap" },
+    { id: "swp", thKey: "th_swp", kind: "pct",     unit: "%", tipLabel: "Swap",         modeKey: "mode_swp", absFrom: "bytes" },
     { id: "gfx", thKey: "th_gfx", kind: "pct",     unit: "%", tipLabel: "GPU terhelés" },
     { id: "tmp", thKey: "th_tmp", kind: "celsius", unit: "°", tipLabel: "Hőmérséklet",  sustained: true }
 ];
@@ -73,6 +84,10 @@ const DEFAULTS = {
         { id: "gfx", show: false }, { id: "tmp", show: false }
     ],
     show_labels: true, fixed_width: false, fixed_width_px: 200,
+    // SPEC 5.1 / 9: percentage or the used amount, per element. Percentage is
+    // the default everywhere; see _elementMode() for how a bad value is read.
+    mode_mem: MODE_PCT, mode_swp: MODE_PCT,
+    mode_gpu: MODE_PCT, mode_ssd: MODE_PCT,
     net_color_up: "#E5484D", net_color_down: "#46A758",
     click_command: "gnome-system-monitor",
     disk_mount: "/",
@@ -102,6 +117,12 @@ const NET_BARS = 20;
 const KIB = 1024;
 const MIB = 1024 * 1024;
 const GIB = 1024 * 1024 * 1024;
+const TIB = 1024 * GIB;
+
+// SPEC 5.1: the unit letters of the absolute mode, shown in the same faint 8 px
+// slot as the "%" and the "°".
+const UNIT_GIB = "G";
+const UNIT_TIB = "T";
 
 // Tooltip column geometry (characters, rendered in a monospace block).
 const TIP_LABEL_COLS = 16;
@@ -206,6 +227,53 @@ function netSpeed(bps) {
         text = String(Math.round(scaled)); // 100 .. 1023
     else
         text = huNumber(scaled, 1);        // 0,1 .. 99,9
+
+    return { text: text, unit: unit };
+}
+
+/*
+ * SPEC 5.1: the used amount of an element, for the absolute display mode.
+ * Bytes in, "12,8" + "G" / "468" + "G" / "1,5" + "T" out, Hungarian decimal
+ * comma - the same comma the network numbers use.
+ *
+ * Binary gigabytes, like _formatSizePair() and like every Linux disk and VRAM
+ * tool. One decimal below 100, none above it, and terabytes above 1000 GB.
+ *
+ * An empty element reads "0", not "0,0" - the same exception netSpeed() makes
+ * for an idle link. This is not a corner case: the swap cell sits at zero most
+ * of the time, so "0" is what that cell shows the user most of the day, and it
+ * is quieter than "0,0". Consistency across the capsule beats consistency
+ * inside one formatter.
+ *
+ * The number is at most four characters, so with the unit letter the widest
+ * result is "31,8G" = 29,5 px measured with Ubuntu 10 - which is what the 32 px
+ * cell is cut for. Both boundaries are therefore tested on the ROUNDED value,
+ * not the raw one: 99,97 GB must not become the five character "100,0", and
+ * 999,7 GB must not become the five character "1000". A value that would round
+ * up crosses the boundary instead.
+ *
+ * Returns { text, unit } with an empty unit when there is no figure to show;
+ * that empty unit is what the caller reads as "fall back to the percentage".
+ */
+function absSize(bytes) {
+    let value = toNumber(bytes);
+    if (value === null || value < 0)
+        return { text: EM_DASH, unit: "" };
+
+    let unit = UNIT_GIB;
+    let scaled = value / GIB;
+    if (scaled >= 999.5) {
+        unit = UNIT_TIB;
+        scaled = value / TIB;
+    }
+
+    let text;
+    if (scaled < 0.05)
+        text = "0";                         // empty, without a noisy "0,0"
+    else if (scaled >= 99.95)
+        text = String(Math.round(scaled));  // 100 .. 999
+    else
+        text = huNumber(scaled, 1);         // 0,1 .. 99,9
 
     return { text: text, unit: unit };
 }
@@ -368,6 +436,14 @@ MyApplet.prototype = {
         this._bindSetting("show_labels",    this._onLayoutSettingChanged);
         this._bindSetting("fixed_width",    this._onLayoutSettingChanged);
         this._bindSetting("fixed_width_px", this._onLayoutSettingChanged);
+        // SPEC 5.1: switching an element to the absolute mode widens its cell
+        // from 30 to 32 px, so the mode is a layout change like any other. It
+        // goes through the same 120 ms coalescing, and setLayout() therefore
+        // still never runs from the data cycle.
+        for (let el of ELEMENTS) {
+            if (el.modeKey)
+                this._bindSetting(el.modeKey, this._onLayoutSettingChanged);
+        }
         // The network colours are baked into the widgets by setLayout(), so a
         // colour change is a rebuild too - never something setValues() touches.
         this._bindSetting("net_color_up",   this._onLayoutSettingChanged);
@@ -877,7 +953,19 @@ MyApplet.prototype = {
         let roomForLabels = capsuleHeight >= LABEL_MIN_HEIGHT;
         this._labelsForcedOff = wantLabels && !roomForLabels;
 
-        let ids = this._enabledElements().map(function(el) { return el.id; });
+        /*
+         * SPEC 7.2: the capsule gets objects, not bare ids - the user's order
+         * plus, per element, whether the cell has to be the wide one. It is
+         * deliberately not told why: "wide" is a width, the mode behind it is a
+         * rule layer concept and stays here.
+         *
+         * The flag comes from the setting alone, never from the current sample,
+         * so a missing byte figure cannot resize a cell mid-cycle (SPEC 3.2).
+         */
+        let elements = this._enabledElements().map((function(el) {
+            return { id: el.id, wide: this._elementMode(el) === MODE_ABS };
+        }).bind(this));
+
         let fixedWidthPx = 0;
         if (this._setting("fixed_width"))
             fixedWidthPx = Math.round(clamp(this._settingNumber("fixed_width_px"), 100, 400));
@@ -891,7 +979,7 @@ MyApplet.prototype = {
         };
 
         try {
-            this._capsule.setLayout(ids, wantLabels && roomForLabels, fixedWidthPx, colors);
+            this._capsule.setLayout(elements, wantLabels && roomForLabels, fixedWidthPx, colors);
         } catch (e) {
             global.logError(UUID + ": setLayout hibázott: " + e);
             return;
@@ -1030,6 +1118,39 @@ MyApplet.prototype = {
         return bars;
     },
 
+    /*
+     * SPEC 5.1: how the element writes its number, "pct" or "abs".
+     *
+     * Anything else counts as "pct": a key still missing from the schema, an
+     * older config file, a hand edited value. An element without a modeKey
+     * (cpu, gfx, tmp, net) is always a percentage by nature.
+     */
+    _elementMode: function(el) {
+        if (!el || !el.modeKey)
+            return MODE_PCT;
+        return String(this._setting(el.modeKey)) === MODE_ABS ? MODE_ABS : MODE_PCT;
+    },
+
+    // The used amount behind an element, always converted to bytes. SPEC 7.1
+    // publishes gpu in MiB and mem / swp / ssd in bytes, and this is the only
+    // place where that difference is allowed to matter.
+    _usedBytes: function(el, node) {
+        if (!node || !el.absFrom)
+            return null;
+        if (el.absFrom === "mib") {
+            let mib = toNumber(node.usedMiB);
+            return mib === null ? null : mib * MIB;
+        }
+        return toNumber(node.usedBytes);
+    },
+
+    // The plain percentage of an element, for the tooltip and the rules - the
+    // number in the cell may be a gigabyte figure instead.
+    _percentOf: function(el, values) {
+        let node = values[el.id];
+        return node ? toNumber(node.pct) : null;
+    },
+
     // Builds one cell descriptor for capsule.setValues().
     // The unit travels with the value (SPEC 7.2) so the capsule never has to
     // know what an element means, only how wide its own boxes are.
@@ -1078,9 +1199,33 @@ MyApplet.prototype = {
             judged = this._sustainedValue(el.id, pct, node.avg10);
 
         let threshold = this._threshold(el);
+
+        /*
+         * SPEC 5.1: the mode changes the NUMBER and nothing else.
+         *
+         * ratio stays the percentage, so the bar says exactly what it said
+         * before - that is the whole point of the mode, the number gets more
+         * telling without the proportion being lost. The alert is decided on
+         * the percentage too, so an element in absolute mode goes orange at the
+         * same instant it would have in percentage mode.
+         */
+        let text = String(Math.round(pct));
+        let unit = el.unit;
+        if (this._elementMode(el) === MODE_ABS) {
+            let abs = absSize(this._usedBytes(el, node));
+            // An empty unit means the provider gave no byte figure this cycle.
+            // The cell then keeps the percentage rather than showing a dash: it
+            // is already the wide cell, so the shorter text fits without moving
+            // anything.
+            if (abs.unit) {
+                text = abs.text;
+                unit = abs.unit;
+            }
+        }
+
         return {
-            text: String(Math.round(pct)),
-            unit: el.unit,
+            text: text,
+            unit: unit,
             ratio: clamp(pct / 100, 0, 1),
             alert: threshold !== null && judged !== null && judged >= threshold
         };
@@ -1139,7 +1284,12 @@ MyApplet.prototype = {
             body = padLeft(cell.text, TIP_VALUE_COLS) + " °C" +
                    this._sustainSuffix("tmp", values.tmp, " °C");
         } else {
-            body = padLeft(cell.text, TIP_VALUE_COLS) + "%" + this._detailFor(el, values);
+            // Deliberately not cell.text: in absolute mode that is a gigabyte
+            // figure, while the tooltip line is "percentage + the exact pair"
+            // in both modes - the tooltip is where the full picture belongs.
+            let pct = this._percentOf(el, values);
+            body = padLeft(pct === null ? EM_DASH : Math.round(pct), TIP_VALUE_COLS) +
+                   "%" + this._detailFor(el, values);
         }
 
         let line = head + body;

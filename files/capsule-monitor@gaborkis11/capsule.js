@@ -7,7 +7,7 @@
  * Contract (SPEC 7.2):
  *   new Capsule(panelHeight)
  *   capsule.actor                                             St.BoxLayout
- *   capsule.setLayout(elementIds, showLabels, fixedWidthPx, colors)
+ *   capsule.setLayout(elements, showLabels, fixedWidthPx, colors)
  *   capsule.setValues(display)
  *   capsule.setAlert(bool)
  *   capsule.destroy()
@@ -31,7 +31,10 @@
  * v2 changes, all of them inside those two rules:
  *   - the value line is a horizontal box: 12 px number + 8 px unit label,
  *     bottom aligned (SPEC 4);
- *   - the cell is 30 px wide with and without labels (SPEC 4);
+ *   - the cell is 30 px wide with and without labels, and 32 px when the
+ *     caller marks the element `wide` because its number is an absolute one
+ *     (SPEC 4, 5.1). The mode itself stays in applet.js: this module is told
+ *     the width class, not the meaning;
  *   - the equalizer is gone; the network cell is a 97 px wide
  *     [graph 59][gap 4][numbers 34] block, the graph and the two direction
  *     arrows drawn with Cairo into St.DrawingArea (SPEC 4, 7.2).
@@ -52,10 +55,18 @@ const CELL_WIDTH_NOLABEL = 30;    // percentage cell, without a label
 // Both are 30 px on purpose: the widest content is "100" + "%" = 28 px measured
 // in the real Ubuntu font, and that content is the same either way. Turning the
 // labels off no longer narrows the capsule, it only thickens the bar.
+const CELL_WIDTH_WIDE = 32;       // absolute value cell, with or without a label
+// An absolute number is wider than a percentage: the worst case is "31,8" + "G"
+// = 29,5 px measured, and a 30 px cell only offers 28 px of content. 32 px fits
+// it with about the same air on either side that "100" + "%" gets in the narrow
+// cell. This is a width class and nothing more - which elements get it is
+// applet.js's decision (SPEC 4, 5.1, 7.2).
 const CELL_SPACING = 7;           // gap between cells
 // The 9 px left and right padding of the pill is not set here: it is the
 // padding rule on .kapszula-capsule in stylesheet.css. Total capsule width is
-// therefore 18 + 30*n + 97 + 7*n, which is the SPEC 4 formula.
+// therefore 18 + the sum of the cell widths + 7 px between neighbouring cells:
+// 18 + 30*n + 97 + 7*n with percentage cells only, and 2 px more per cell the
+// caller marks wide. This is the SPEC 4 formula.
 
 const CONTENT_HEIGHT = 27;        // cell content height inside the 32 px capsule
 
@@ -136,6 +147,43 @@ function clamp(value, min, max) {
 
 function isFiniteNumber(value) {
     return typeof value === "number" && isFinite(value);
+}
+
+/*
+ * setLayout() takes { id, wide } objects since v2. A caller written against v1
+ * hands over plain id strings instead, and one forgotten caller must not be
+ * able to bring the panel down, so a bare string is read as
+ * { id: <string>, wide: false } - the v1 geometry, which is exactly what such a
+ * caller means. Anything without a usable id is dropped rather than turned into
+ * a cell labelled with garbage.
+ *
+ * Only `true` means wide: a missing, null or "abs" valued flag all fall back to
+ * the narrow cell, because a wrong guess here would widen the capsule.
+ */
+function normalizeElements(elements) {
+    let list = Array.isArray(elements) ? elements : [];
+    let out = [];
+
+    for (let i = 0; i < list.length; i++) {
+        let entry = list[i];
+        let id = null;
+        let wide = false;
+
+        if (entry && typeof entry === "object") {
+            if (entry.id !== null && entry.id !== undefined)
+                id = String(entry.id);
+            wide = (entry.wide === true);
+        } else if (entry !== null && entry !== undefined) {
+            id = String(entry);
+        }
+
+        if (id === null || id === "")
+            continue;
+
+        out.push({ id: id, wide: wide });
+    }
+
+    return out;
 }
 
 /*
@@ -248,11 +296,18 @@ Capsule.prototype = {
 
     /*
      * Full rebuild. Called on settings changes only, never from the data cycle.
-     * elementIds order matters and is the user's (SPEC 10); showLabels may be
-     * overridden by the panel height; fixedWidthPx > 0 reserves that much space
-     * and centers the capsule in it; colors is { netUp, netDown } hex strings.
+     *
+     * elements is [{ id: "mem", wide: true }, ...]: the order is the user's
+     * (SPEC 10) and `wide` asks for the 32 px cell an absolute number needs
+     * (SPEC 5.1). Plain id strings are still accepted and read as narrow cells.
+     * showLabels may be overridden by the panel height; fixedWidthPx > 0
+     * reserves that much space and centers the capsule in it; colors is
+     * { netUp, netDown } hex strings.
+     *
+     * Every cell width in the capsule is decided here and nowhere else, so the
+     * only thing that can change it is a settings change.
      */
-    setLayout: function(elementIds, showLabels, fixedWidthPx, colors) {
+    setLayout: function(elements, showLabels, fixedWidthPx, colors) {
         if (this._destroyed)
             return;
 
@@ -268,17 +323,20 @@ Capsule.prototype = {
             down: parseColor(palette.netDown) || parseColor(NET_COLOR_DOWN_DEFAULT)
         };
 
-        let ids = Array.isArray(elementIds) ? elementIds : [];
+        let list = normalizeElements(elements);
         let wanted = (showLabels === true);
         this._showLabels = wanted && this.labelsPossible;
         this.labelsForcedOff = wanted && !this.labelsPossible;
 
         let metrics = this._computeMetrics(this._showLabels);
 
-        for (let i = 0; i < ids.length; i++) {
-            let id = String(ids[i]);
-            let cell = (id === NET_ID) ? this._buildNetCell(id, metrics)
-                                       : this._buildValueCell(id, metrics);
+        for (let i = 0; i < list.length; i++) {
+            let entry = list[i];
+            // The network cell is always 97 px: it holds a graph and two
+            // preformatted numbers, so `wide` has no meaning for it (SPEC 7.2).
+            let cell = (entry.id === NET_ID)
+                ? this._buildNetCell(entry.id, metrics)
+                : this._buildValueCell(entry.id, metrics, entry.wide);
             this._cells.push(cell);
             this._capsule.add_child(cell.actor);
         }
@@ -368,10 +426,12 @@ Capsule.prototype = {
 
     /*
      * On the designed 40 px panel this returns exactly the SPEC 4 numbers:
-     * cell 30 px wide, 27 px of content, bar 3 px with labels and 12 px without.
-     * On a shorter panel the value slot keeps the room the 12 px digits need and
-     * the bar absorbs the loss; the network cell follows the same cell height so
-     * every cell still ends on the same baseline.
+     * cell 30 px wide (32 px for a wide one), 27 px of content, bar 3 px with
+     * labels and 12 px without. On a shorter panel the value slot keeps the room
+     * the 12 px digits need and the bar absorbs the loss; the network cell
+     * follows the same cell height so every cell still ends on the same
+     * baseline. Only the height depends on the panel - the widths are the same
+     * on every panel, because the font size is.
      */
     _computeMetrics: function(showLabels) {
         let available = Math.min(CONTENT_HEIGHT, this.capsuleHeight - 2);
@@ -387,6 +447,9 @@ Capsule.prototype = {
         return {
             showLabels: showLabels,
             cellWidth: showLabels ? CELL_WIDTH_LABEL : CELL_WIDTH_NOLABEL,
+            // The wide cell is 32 px either way: an absolute number takes the
+            // same room whether or not there is a label above it (SPEC 4).
+            cellWidthWide: CELL_WIDTH_WIDE,
             cellHeight: cellHeight,
             labelSlot: labelSlot,
             valueSlot: valueSlot,
@@ -426,8 +489,15 @@ Capsule.prototype = {
         return label;
     },
 
-    _buildValueCell: function(id, metrics) {
-        let cellActor = this._newCellActor(metrics, metrics.cellWidth);
+    /*
+     * A percentage, temperature or absolute value cell. `wide` picks the width
+     * class and nothing else: the layout inside is identical either way, the
+     * number just gets 2 px more room. The width is frozen here; the track and
+     * therefore the fill scale follow it, so setValues() never has to know it.
+     */
+    _buildValueCell: function(id, metrics, wide) {
+        let cellWidth = (wide === true) ? metrics.cellWidthWide : metrics.cellWidth;
+        let cellActor = this._newCellActor(metrics, cellWidth);
 
         let labelActor = null;
         if (metrics.showLabels) {
@@ -457,7 +527,7 @@ Capsule.prototype = {
         let trackActor = new St.BoxLayout({ style_class: CLASS_TRACK });
         if (!metrics.showLabels)
             trackActor.add_style_class_name(CLASS_TRACK_NOLABEL);
-        trackActor.set_width(metrics.cellWidth);
+        trackActor.set_width(cellWidth);
         trackActor.set_height(metrics.barHeight);
         trackActor.set_x_align(Clutter.ActorAlign.CENTER);
         cellActor.add_child(trackActor);
@@ -473,6 +543,7 @@ Capsule.prototype = {
         let cell = {
             id: id,
             kind: "value",
+            wide: (wide === true),
             actor: cellActor,
             signals: [],
             labelActor: labelActor,
@@ -480,7 +551,7 @@ Capsule.prototype = {
             unitActor: unitActor,
             fillActor: fillActor,
             tabularActors: [valueActor],
-            trackWidth: metrics.cellWidth,
+            trackWidth: cellWidth,
             lastText: null,
             lastUnit: "",
             lastFillWidth: 0,
