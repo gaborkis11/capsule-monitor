@@ -1,10 +1,13 @@
 # Capsule System Monitor
 
-A compact system monitor for the Cinnamon panel. One dark capsule shows memory, CPU, video
-memory, disk and network at a glance — quiet when everything is fine, orange when something
-needs attention.
+A compact system monitor for the Cinnamon panel and the [Omarchy](https://omarchy.org/) bar.
+One dark capsule shows memory, CPU, video memory, disk and network at a glance — quiet when
+everything is fine, orange when something needs attention.
 
 ![Capsule System Monitor on the panel](screenshot.png)
+
+Running Omarchy (Hyprland)? Jump to [Omarchy](#omarchy) — the same capsule, as an Omarchy
+shell plugin.
 
 ## Why another system monitor
 
@@ -107,6 +110,78 @@ rm -rf ~/.local/share/cinnamon/applets/capsule-monitor@gaborkis11
 ```
 
 Remove it from the panel first (right-click the applet → Remove).
+
+## Omarchy
+
+![Capsule System Monitor on the Omarchy bar](screenshot-omarchy.png)
+
+The `omarchy/` directory holds the same monitor as an Omarchy shell plugin (a bar widget
+written in QML). It follows the same rules as the Cinnamon applet: fixed-width slots, one
+orange accent, sustained CPU and temperature alerts, per-direction network scaling, physical
+interfaces only. On the 26 px Omarchy bar the capsule is slightly shorter and the type one pixel
+smaller than on a Cinnamon panel.
+
+### Requirements
+
+- Omarchy with the Quickshell-based `omarchy-shell`
+- `python3` — the data sampler is a small script that reads `/proc` and `/sys`; no extra
+  packages
+- `nvidia-smi` for GPU and GFX on NVIDIA. Without it the sampler falls back to the `amdgpu`
+  sysfs counters; with neither, those elements show `—`.
+
+### Install
+
+```bash
+git clone https://github.com/gaborkis11/capsule-monitor.git
+cd capsule-monitor
+./omarchy/install.sh
+```
+
+The installer copies the plugin to `~/.config/omarchy/plugins/capsule-monitor` and places it
+to the left of the clock. Drag it anywhere on the bar to move it. To update, pull and run the
+installer again — it restarts the shell so the new version is loaded.
+
+### Settings
+
+Settings go in the widget's entry in `~/.config/omarchy/shell.json`; the bar picks up a saved
+change at once. Every key is optional:
+
+```json
+{
+  "id": "gaborkis.capsule-monitor",
+  "elements": ["cpu", "mem", "gpu", "gfx", "ssd", "net"],
+  "modes": { "mem": "abs", "gpu": "abs" },
+  "thresholds": { "mem": 85, "cpu": 90, "gpu": 90, "ssd": 80, "swp": 50, "gfx": 100, "tmp": 85 },
+  "showLabels": true,
+  "diskMount": "/",
+  "sustainSeconds": 10,
+  "clickCommand": "omarchy-launch-or-focus-tui btop"
+}
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `elements` | `["mem","cpu","gpu","ssd","net"]` | Which elements are shown, in this order. Also available: `swp`, `gfx`, `tmp`. |
+| `modes` | all `"pct"` | `"abs"` shows the used amount (`12,8 G`) instead of the percentage for `mem`, `swp`, `gpu`, `ssd`. |
+| `thresholds` | see above | Alert threshold per element. A percentage threshold of 100 or more never fires. |
+| `showLabels` | `true` | Captions above the values; off makes the bars thicker. |
+| `diskMount` | `"/"` | Mount point the SSD element watches. |
+| `sustainSeconds` | `10` | How long CPU and temperature must stay above the line before alerting. `0` alerts at once. |
+| `clickCommand` | `omarchy-launch-or-focus-tui btop` | What a left click runs. |
+| `netColorUp` / `netColorDown` | `#E5484D` / `#46A758` | Colours of the network graph and arrows. |
+| `alertColor` | `#FF8C00` | The single accent colour. |
+| `fixedWidth` | `0` | Reserve a fixed width in pixels; `0` sizes the capsule to its elements. |
+| `refreshMs` / `gpuRefreshMs` | `1000` / `5000` | Sampling intervals. |
+| `fontFamily` | `"Noto Sans"` | Font of the capsule; tabular figures keep the digits still. |
+
+Hovering the capsule shows the detailed tooltip, including every fixed volume.
+
+### Uninstall
+
+```bash
+omarchy plugin disable gaborkis.capsule-monitor
+rm -rf ~/.config/omarchy/plugins/capsule-monitor
+```
 
 ## Licence
 

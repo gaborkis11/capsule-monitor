@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "gaborkis.capsule-monitor",
+  "name": "Capsule System Monitor",
+  "version": "1.0.0",
+  "author": "gaborkis11",
+  "license": "GPL-3.0",
+  "description": "Compact system monitor capsule: memory, CPU, video memory, GPU load, disk, network, swap and CPU temperature at a glance.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "CapsuleMonitor.qml"
+  },
+  "barWidget": {
+    "displayName": "Capsule System Monitor",
+    "description": "One quiet capsule with the metrics that matter; it turns orange when something needs attention.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "centerBegin",
+    "defaults": {
+      "elements": ["mem", "cpu", "gpu", "ssd", "net"],
+      "showLabels": true,
+      "diskMount": "/",
+      "sustainSeconds": 10,
+      "clickCommand": "omarchy-launch-or-focus-tui btop"
+    },
+    "schema": [
+      { "key": "showLabels", "type": "boolean", "label": "Show captions above the values", "defaultValue": true },
+      { "key": "diskMount", "type": "string", "label": "Monitored mount point", "defaultValue": "/" },
+      { "key": "clickCommand", "type": "string", "label": "Command to run on left click", "defaultValue": "omarchy-launch-or-focus-tui btop" },
+      { "key": "sustainSeconds", "type": "integer", "label": "Sustain time for CPU and temperature alerts (s)", "min": 0, "max": 120, "step": 1, "defaultValue": 10 }
+    ]
+  }
+}
